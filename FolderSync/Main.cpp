@@ -9,9 +9,9 @@
 #include <numeric>
 #include <fstream>
 #include <locale>
+#include <exception>
 
-
-#define LOG(x) std::wcout << x << std::endl;
+#define LOG(x) std::wcout << x << L'\n';//std::endl;
 
 namespace fs = std::filesystem;
 
@@ -40,7 +40,7 @@ public:
 
 	void remove() {
 		if (!fs::remove(this->d_entry.path()))
-			throw "Cant remove";
+			throw std::runtime_error("Cant remove");
 		this->d_entry = fs::directory_entry::directory_entry();
 	}
 
@@ -96,7 +96,7 @@ public:
 		return size;
 	};
 
-	std::vector<std::vector<File>> get_files() const { // make static?
+	std::vector<std::vector<File>> get_files() const {
 		std::vector<std::vector<File>> rez;
 		std::stack<const Folder*> temp;
 		temp.push(this);
@@ -124,7 +124,7 @@ class SyncFolder {
 private:
 	void _removeFile(const fs::path& path) {
 		if (!fs::remove(path))
-			throw "Cant remove";
+			throw std::runtime_error("Cant remove");
 	}
 
 	void _copyFile(const fs::path& path, const fs::path& base) {
@@ -135,7 +135,7 @@ private:
 		std::wcout << L"Copying " << new_path << std::endl;
 	//	LOG(L"Copying " << new_path);
 		if (!fs::copy_file(path, new_path, fs::copy_options::overwrite_existing)) {
-			throw "Cant copy";
+			throw std::runtime_error("Cant copy");
 		}
 	}
 
@@ -144,7 +144,7 @@ public:
 	SyncFolder(const std::wstring& path)
 	{
 		if (!fs::exists(path) && !fs::is_directory(path))
-			throw "Path isnt exists or not a directory";
+			throw std::runtime_error("Path isnt exists or not a directory");
 		
 		this->basePath = path;
 
@@ -180,7 +180,7 @@ public:
 		std::map<fs::path, File> map_lhs;
 		std::map<fs::path, File> map_rhs; // improve?
 
-
+		#pragma region build_maps
 		for (const auto& v : rhs) {
 			for (const auto& el : v) {
 				map_rhs[fs::relative(el.d_entry.path(), from.basePath)] = el;
@@ -188,11 +188,11 @@ public:
 		}
 		for (const auto& v : lhs) {
 			for (const auto& el : v) {
-				map_lhs[fs::relative(el.d_entry.path(), basePath)] = el; 
-				// dont need to rebuild map everytime
-				// try to save to file, and load on next launch, but i need to delete disappeared files, how?
+				map_lhs[fs::relative(el.d_entry.path(), basePath)] = el;
+				// try to save to file, and load on next launch
 			}
 		}
+		#pragma endregion
 
 		for (const auto& v : rhs) {
 			for (const auto& el : v) {
@@ -227,26 +227,41 @@ public:
 int main() {
 	std::wcout.imbue(std::locale("en-US.65001"));
 	std::wstring path = L"D:\\Users\\Danil\\Dropbox\\USB";
-	
-	std::ifstream settings("settings.cfg");
+	std::wstring cfgPath = L"settings.cfg";
+
+	LOG(L"Started");
+	if (!fs::exists(cfgPath)) {
+		LOG(L"Cfg file not found");
+		LOG(L"Exiting");
+	}
+
+	LOG(L"Cfg path: " << fs::absolute(cfgPath));
+
+	std::ifstream settings(cfgPath);
 
 	std::string from;
 	std::string dest;
 	std::getline(settings, from);
 	std::getline(settings, dest);
-	
-	from = std::string(from.begin() + 6, from.end());
-	dest = std::string(dest.begin() + 6, dest.end());
 
 	settings.close();
 
-	SyncFolder f(std::wstring(from.begin(), from.end()));
-	SyncFolder d(std::wstring(dest.begin(), dest.end()));
+	from = std::string(from.begin() + 6, from.end());
+	dest = std::string(dest.begin() + 6, dest.end());
 
-	//delete disappeared files, recursively copy folder is more effectively way?
-	d.copyNew(f);
-	//SyncFolder f1(L"D:\\Users\\Danil\\Dropbox\\Folder1");
-	//SyncFolder f2(L"D:\\Users\\Danil\\Dropbox\\Folder2");
-	
+
+	try {
+		SyncFolder f(std::wstring(from.begin(), from.end()));
+		SyncFolder d(std::wstring(dest.begin(), dest.end()));
+
+		//delete disappeared files, recursively copy folder is more effectively way?
+		d.copyNew(f);
+	}
+	catch (std::exception& ex) {
+		std::cout << ex.what() << std::endl;
+	}
+
+	LOG(L"Exiting");
+	system("pause");
 	return 0;
 }
