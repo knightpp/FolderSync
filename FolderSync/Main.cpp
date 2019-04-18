@@ -8,8 +8,10 @@
 #include <map>
 #include <numeric>
 #include <fstream>
+#include <locale>
 
-#define LOG(x) std::wcerr << x << L'\n';
+
+#define LOG(x) std::wcout << x << std::endl;
 
 namespace fs = std::filesystem;
 
@@ -24,15 +26,28 @@ private:
 };
 
 class File : public Directory{
+	//friend class SyncFolder;
 	
 public:
 	File(const fs::directory_entry& d_entry) : Directory(d_entry)
 	{
 	}
 
+	File() : Directory(fs::directory_entry::directory_entry())
+	{
+
+	}
+
+	void remove() {
+		if (!fs::remove(this->d_entry.path()))
+			throw "Cant remove";
+		this->d_entry = fs::directory_entry::directory_entry();
+	}
+
 	bool operator==(const File& rhs) const{
-		bool rez = (rhs.d_entry.last_write_time() == this->d_entry.last_write_time()) &&
-			(rhs.d_entry.file_size() == this->d_entry.file_size());
+		/*bool rez = (rhs.d_entry.last_write_time() == this->d_entry.last_write_time()) &&
+			(rhs.d_entry.file_size() == this->d_entry.file_size());*/
+		bool rez = rhs.d_entry.file_size() == this->d_entry.file_size();
 		return rez;
 	}
 };
@@ -106,6 +121,24 @@ private:
 class SyncFolder {
 	std::wstring basePath;
 
+private:
+	void _removeFile(const fs::path& path) {
+		if (!fs::remove(path))
+			throw "Cant remove";
+	}
+
+	void _copyFile(const fs::path& path, const fs::path& base) {
+		auto new_path = basePath + L"\\" + fs::relative(path, base).wstring();
+		auto new_folder = basePath + L"\\" + fs::relative(path, base).remove_filename().wstring();
+		fs::create_directories(new_folder);
+
+		std::wcout << L"Copying " << new_path << std::endl;
+	//	LOG(L"Copying " << new_path);
+		if (!fs::copy_file(path, new_path, fs::copy_options::overwrite_existing)) {
+			throw "Cant copy";
+		}
+	}
+
 public:
 	Folder* rootFolder;
 	SyncFolder(const std::wstring& path)
@@ -114,7 +147,6 @@ public:
 			throw "Path isnt exists or not a directory";
 		
 		this->basePath = path;
-
 
 		rootFolder = new Folder(
 			fs::directory_entry::directory_entry(
@@ -135,48 +167,65 @@ public:
 
 
 	void copyNew(const SyncFolder& from) {
-		if (this->basePath == from.basePath)
+		if (fs::equivalent(this->basePath, from.basePath))
+			return;
+		if (!fs::exists(this->basePath) && !fs::exists(from.basePath))
 			return;
 		if (from.count_files() == 0)
 			return;
 		// TODO:	check free disk space here
-		//			compare files, copy modified
 		auto lhs = rootFolder->get_files();
 		auto rhs = from.rootFolder->get_files();
 
-		std::map<fs::path,const File*> map_lhs;
+		std::map<fs::path, File> map_lhs;
+		std::map<fs::path, File> map_rhs; // improve?
 
+
+		for (const auto& v : rhs) {
+			for (const auto& el : v) {
+				map_rhs[fs::relative(el.d_entry.path(), from.basePath)] = el;
+			}
+		}
 		for (const auto& v : lhs) {
 			for (const auto& el : v) {
-				map_lhs[fs::relative(el.d_entry.path(), basePath)] = &el; // dont need to rebuild map everytime
-				// try to save to file, and load on next launch
+				map_lhs[fs::relative(el.d_entry.path(), basePath)] = el; 
+				// dont need to rebuild map everytime
+				// try to save to file, and load on next launch, but i need to delete disappeared files, how?
 			}
 		}
 
 		for (const auto& v : rhs) {
 			for (const auto& el : v) {
 				auto it = map_lhs.find(fs::relative(el.d_entry.path(), from.basePath));
-				if (it != map_lhs.end()) { 
+				if (it != map_lhs.end()) {
 					// compare, and copy new if needed
-					std::cout << it->second->d_entry.path().filename() << "\teq: " << it->second->operator==(el) << "\n";
+					if (!(it->second.operator==(el))) {
+						LOG(L"Changed file: " << el.d_entry.path().filename() << L"\tSize: " << el.d_entry.file_size());
+						_copyFile(el.d_entry.path(), from.basePath);
+					}
 				}
 				else {
-					auto new_path = basePath + L"\\" + fs::relative(el.d_entry.path(), from.basePath).wstring();
-					auto new_folder = basePath + L"\\" + fs::relative(el.d_entry.path(), from.basePath).remove_filename().wstring();
-					fs::create_directories(new_folder);
-			
-					LOG(L"Copying " << el.d_entry.path().filename());
-					fs::copy(el.d_entry.path(), new_path, fs::copy_options::overwrite_existing);
+					LOG(L"New file: " << el.d_entry.path().filename() << L"\tSize: " << el.d_entry.file_size());
+					_copyFile(el.d_entry.path(), from.basePath);
 				}
 			}
 		}
 
-
+		for (auto& v : lhs) {
+			for (auto& el : v) {
+				auto it = map_rhs.find(fs::relative(el.d_entry.path(), this->basePath));
+				if (it == map_rhs.end()) { // not found
+					LOG(L"Removed file: " << el.d_entry.path().filename() << L"\tSize: " << el.d_entry.file_size());
+					el.remove();
+				}
+			}
+		}
 	}
 };
 
 
 int main() {
+	std::wcout.imbue(std::locale("en-US.65001"));
 	std::wstring path = L"D:\\Users\\Danil\\Dropbox\\USB";
 	
 	std::ifstream settings("settings.cfg");
