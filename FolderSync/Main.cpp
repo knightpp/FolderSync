@@ -69,6 +69,6 @@ int main() {
 		}
 	}
 
-	std::wcin.get();
+	std::cin.get();
 	return 0;
 }
