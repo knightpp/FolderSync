@@ -8,54 +8,36 @@
 #include <map>
 #include <numeric>
 #include <fstream>
-#include <locale>
-#include <exception>
-#include "Duration.h"
 
-#define LOG(x) std::wcout << x << L'\n';//std::endl;
+#define LOG(x) std::wcerr << x << L'\n';
 
 namespace fs = std::filesystem;
 
-class Directory {
+class Directory{
 	friend class File;
 	friend class Folder;
 	friend class SyncFolder;
 private:
-	Directory(const fs::directory_entry& d_entry) : d_entry(d_entry) {}
+	Directory(const fs::directory_entry& d_entry) : d_entry(d_entry){}
 
 	fs::directory_entry d_entry;
 };
 
-class File : public Directory {
-	//friend class SyncFolder;
-
+class File : public Directory{
+	
 public:
 	File(const fs::directory_entry& d_entry) : Directory(d_entry)
 	{
 	}
 
-	File() : Directory(fs::directory_entry::directory_entry())
-	{
-
-	}
-
-	void remove() {
-		if (!fs::remove(this->d_entry.path()))
-			throw std::runtime_error("Cant remove file");
-		this->d_entry = fs::directory_entry::directory_entry();
-	}
-
-	bool operator==(const File& rhs) const {
-		/*bool rez = (rhs.d_entry.last_write_time() == this->d_entry.last_write_time()) &&
-			(rhs.d_entry.file_size() == this->d_entry.file_size());*/
-		bool rez = rhs.d_entry.file_size() == this->d_entry.file_size();
-		//bool rez = rhs.d_entry == this->d_entry;
+	bool operator==(const File& rhs) const{
+		bool rez = (rhs.d_entry.last_write_time() == this->d_entry.last_write_time()) &&
+			(rhs.d_entry.file_size() == this->d_entry.file_size());
 		return rez;
 	}
 };
 
-class Folder : public Directory {
-	friend class SyncFolder;
+class Folder : public Directory{
 public:
 	Folder(const fs::directory_entry& _entry) : Directory(_entry)
 	{
@@ -96,7 +78,7 @@ public:
 		}
 	}
 
-	size_t count_folders() const {
+	size_t count_folders() const{ 
 		size_t size = folders.size();
 		for (auto f : folders) {
 			size += f->count_folders();
@@ -147,7 +129,7 @@ public:
 
 		while (!temp.empty())
 		{
-			if (!temp.top()->files.empty())
+			if(!temp.top()->files.empty())
 				rez.push_back(temp.top()->files);
 
 			auto fld = temp.top()->folders; temp.pop();
@@ -192,12 +174,14 @@ private:
 
 public:
 	Folder* rootFolder;
+	std::wstring basePath;
 	SyncFolder(const std::wstring& path)
 	{
 		if (!fs::exists(path) && !fs::is_directory(path))
-			throw std::runtime_error("Path isnt exists or not a directory");
-
+			throw "Path isnt exists or not a directory";
+		
 		this->basePath = path;
+
 
 		rootFolder = new Folder(
 			fs::directory_entry::directory_entry(
@@ -215,14 +199,17 @@ public:
 		return rootFolder->count_folders();
 	}
 
-	void copy_new(const SyncFolder& from) {
-		if (fs::equivalent(this->basePath, from.basePath))
-			return;
-		if (!fs::exists(this->basePath) && !fs::exists(from.basePath))
+
+
+	void copyNew(const SyncFolder& from) {
+		if (this->basePath == from.basePath)
 			return;
 		if (from.count_files() == 0)
 			return;
 		// TODO:	check free disk space here
+		//			compare files, copy modified
+		auto lhs = rootFolder->get_files();
+		auto rhs = from.rootFolder->get_files();
 
 		#pragma region deleting_folders
 		{
@@ -255,37 +242,29 @@ public:
 		#pragma region build_maps
 		for (const auto& v : rhs_files) {
 			for (const auto& el : v) {
-				map_rhs_files[fs::relative(el.d_entry.path(), from.basePath)] = &el;
-			}
-		}
-		for (const auto& v : lhs_files) {
-			for (const auto& el : v) {
-				map_lhs_files[fs::relative(el.d_entry.path(), basePath)] = &el;
+				map_lhs[fs::relative(el.d_entry.path(), basePath)] = &el; // dont need to rebuild map everytime
 				// try to save to file, and load on next launch
 			}
 		}
-#pragma endregion
 
 		#pragma region copy_new_and_changed
 		for (const auto& v : rhs_files) {
 			for (const auto& el : v) {
-				auto it = map_lhs_files.find(
-					fs::relative(el.d_entry.path(), from.basePath));
-				if (it != map_lhs_files.end()) {
-					if (!(it->second->operator==(el))) {
-						LOG(L"Changed file: " << el.d_entry.path().filename()
-							<< L"\tSize: " << el.d_entry.file_size());
-						_copy_file(el.d_entry.path(), from.basePath);
-					}
+				auto it = map_lhs.find(fs::relative(el.d_entry.path(), from.basePath));
+				if (it != map_lhs.end()) { 
+					// compare, and copy new if needed
+					std::cout << it->second->d_entry.path().filename() << "\teq: " << it->second->operator==(el) << "\n";
 				}
 				else {
-					LOG(L"New file: " << el.d_entry.path().filename()
-						<< L"\tSize: " << el.d_entry.file_size());
-					_copy_file(el.d_entry.path(), from.basePath);
+					auto new_path = basePath + L"\\" + fs::relative(el.d_entry.path(), from.basePath).wstring();
+					auto new_folder = basePath + L"\\" + fs::relative(el.d_entry.path(), from.basePath).remove_filename().wstring();
+					fs::create_directories(new_folder);
+			
+					LOG(L"Copying " << el.d_entry.path().filename());
+					fs::copy(el.d_entry.path(), new_path, fs::copy_options::overwrite_existing);
 				}
 			}
 		}
-#pragma endregion
 
 		#pragma region deleting_files
 		for (auto& v : lhs_files) {
@@ -305,54 +284,28 @@ public:
 };
 
 
-/*
-	make structure like Folder, but Directory and its hash will be hash of hashes of contents
-*/
-
 int main() {
-	std::wcout.imbue(std::locale("en-US.65001"));
 	std::wstring path = L"D:\\Users\\Danil\\Dropbox\\USB";
-	std::wstring cfgPath = L"settings.cfg";
-	{
-		Duration d;
-		LOG(L"Started");
-		if (!fs::exists(cfgPath)) {
-			LOG(L"Cfg file not found");
-			LOG(L"Exiting");
-			system("pause");
-			return 1;
-		}
+	
+	std::ifstream settings("settings.cfg");
 
-		LOG(L"Cfg path: " << fs::absolute(cfgPath));
+	std::string from;
+	std::string dest;
+	std::getline(settings, from);
+	std::getline(settings, dest);
+	
+	from = std::string(from.begin() + 6, from.end());
+	dest = std::string(dest.begin() + 6, dest.end());
 
-		std::ifstream settings(cfgPath);
+	settings.close();
 
-		std::string from; // make wide?
-		std::string dest;
-		std::getline(settings, from);
-		std::getline(settings, dest);
+	SyncFolder f(std::wstring(from.begin(), from.end()));
+	SyncFolder d(std::wstring(dest.begin(), dest.end()));
 
-		settings.close();
-
-		from = std::string(from.begin() + 6, from.end());
-		dest = std::string(dest.begin() + 6, dest.end());
-
-
-		try {
-			SyncFolder f(std::wstring(from.begin(), from.end()));
-			SyncFolder d(std::wstring(dest.begin(), dest.end()));
-
-			//delete disappeared files, recursively copy folder is more effectively way?
-			d.copy_new(f);
-		}
-		catch (std::exception & ex) {
-			std::cout << ex.what() << std::endl;
-		}
-
-
-		LOG(L"Exiting");
-	}
-
-	system("pause");
+	//delete disappeared files, recursively copy folder is more effectively way?
+	d.copyNew(f);
+	//SyncFolder f1(L"D:\\Users\\Danil\\Dropbox\\Folder1");
+	//SyncFolder f2(L"D:\\Users\\Danil\\Dropbox\\Folder2");
+	
 	return 0;
 }
