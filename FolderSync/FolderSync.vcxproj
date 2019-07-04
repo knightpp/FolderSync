@@ -23,6 +23,7 @@
     <ProjectGuid>{C88FED1C-0BF0-4E34-AE96-BFD82E73711D}</ProjectGuid>
     <RootNamespace>FolderSync</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>FolderSync</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
