@@ -11,7 +11,7 @@
 #include <locale>
 #include <exception>
 #include "Duration.h"
-
+#include "..//cxxopts/include/cxxopts.hpp"
 
 #ifdef _DEBUG
 #  define LOGD(x) std::cout << x << std::endl
@@ -369,38 +369,56 @@ public:
 	make structure like Folder, but Directory and its hash will be hash of hashes of contents
 */
 
-int main() {
-	std::wcout.imbue(std::locale("en-US"));
-	//std::wstring path = L"D:\\Users\\Danil\\Dropbox\\USB";
-	std::wstring cfgPath = L"settings.cfg";
-	{
-		Duration d;
-		LOG(L"Started");
+int main(int argc, char** argv) {
+	//std::wcout.imbue(std::locale("en-US"));
+	const std::string defaultConfigPath("settings.cfg");
+	cxxopts::Options options("FolderSync", "Sync your folders");
+	options.add_options()
+		("c,config", "Path to config file", cxxopts::value<std::string>()->default_value(defaultConfigPath))
+		("d,dest", "Path to dest folder", cxxopts::value<std::string>())
+		("f,from", "Path to from folder", cxxopts::value<std::string>())
+		("h,help", "Show this help")
+		;
+	auto result = options.parse(argc, argv);
+
+
+	std::string cfgPath;
+	std::string from; // make wide?
+	std::string dest;
+
+	if (result.count("help")) {
+		std::cout << options.help() << std::endl;
+		system("pause");
+		return 0;
+	}else if (result.count("dest") + 
+		result.count("from") == 2) {
+		dest = result["dest"].as<std::string>();
+		from = result["from"].as<std::string>();
+	}else{
+		cfgPath = result["config"].as<std::string>();
+		LOG(L"Cfg path: " << fs::absolute(cfgPath));
 		if (!fs::exists(cfgPath)) {
+			std::cout << options.help() << std::endl;
 			LOG(L"Cfg file not found");
 			LOG(L"Exiting");
 			system("pause");
 			return 1;
 		}
-
-		LOG(L"Cfg path: " << fs::absolute(cfgPath));
-
 		std::ifstream settings(cfgPath);
-
-		std::string from; // make wide?
-		std::string dest;
 		std::getline(settings, from);
 		std::getline(settings, dest);
-		
 		LOGD("Config file 0 line: " << from);
 		LOGD("Config file 1 line: " << dest);
-
 		settings.close();
 
 		from = std::string(from.begin() + 6, from.end());
 		dest = std::string(dest.begin() + 6, dest.end());
 
-
+	}
+	
+	{
+		Duration d;
+		LOG(L"Started");
 		try {
 			SyncFolder f(std::wstring(from.begin(), from.end()));
 			SyncFolder d(std::wstring(dest.begin(), dest.end()));
@@ -411,8 +429,6 @@ int main() {
 		catch (std::exception& ex) {
 			std::cout << ex.what() << std::endl;
 		}
-
-
 		LOG(L"Exiting");
 	}
 
